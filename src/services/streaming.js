@@ -121,7 +121,7 @@ async function convertirImdbATmdb(id, apiKey) {
 /**
  * Consultar streams de Lat-Team y TMDB
  */
-async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey) {
+async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey, qbtClient = null) {
   const { id: tmdbId, type: tipo } = await convertirImdbATmdb(id, tmdbKey);
 
   if (tipo === 'movie') {
@@ -136,7 +136,21 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey) {
       const latTeamData = response1.data;
       
       for (const item of latTeamData.data) {
-        const title = formatStreamTitle(item);
+        let title = formatStreamTitle(item);
+        
+        // Verificar si está en cache en qBittorrent
+        if (qbtClient) {
+          try {
+            const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
+            if (enCache.length > 0) {
+              title = `⚡ ${title}`;
+            }
+          } catch (error) {
+            // Si falla la verificación, continuar sin el emoji
+            console.log(`Error verificando cache para ${item.id}: ${error.message}`);
+          }
+        }
+        
         const urlF = `${domain}/${addonKey}/rd1/${item.id}`;
         streams.push({ title, url: urlF });
       }
@@ -151,7 +165,21 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey) {
       const latTeamData2 = response2.data;
       
       for (const item of latTeamData2.data) {
-        const title = formatStreamTitle(item);
+        let title = formatStreamTitle(item);
+        
+        // Verificar si está en cache en qBittorrent
+        if (qbtClient) {
+          try {
+            const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
+            if (enCache.length > 0) {
+              title = `⚡ ${title}`;
+            }
+          } catch (error) {
+            // Si falla la verificación, continuar sin el emoji
+            console.log(`Error verificando cache para ${item.id}: ${error.message}`);
+          }
+        }
+        
         const urlF = `${domain}/${addonKey}/rd1/${item.id}`;
         streams.push({ title, url: urlF });
       }
@@ -187,7 +215,21 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey) {
         const seasonOnly = `S${seasonNumber.padStart(2, '0')} `;
         
         if (name.includes(seasonEpisode) || name.includes(seasonOnly)) {
-          const title = formatStreamTitle(item);
+          let title = formatStreamTitle(item);
+          
+          // Verificar si está en cache en qBittorrent
+          if (qbtClient) {
+            try {
+              const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
+              if (enCache.length > 0) {
+                title = `⚡ ${title}`;
+              }
+            } catch (error) {
+              // Si falla la verificación, continuar sin el emoji
+              console.log(`Error verificando cache para ${item.id}: ${error.message}`);
+            }
+          }
+          
           const urlF = `${domain}/${addonKey}/rd2/${seasonNumber}/${episodeNumber}/${item.id}`;
           streams.push({ title, url: urlF });
         }
@@ -208,7 +250,21 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey) {
         const seasonOnly = `S${seasonNumber.padStart(2, '0')} `;
         
         if (name.includes(seasonEpisode) || name.includes(seasonOnly)) {
-          const title = formatStreamTitle(item);
+          let title = formatStreamTitle(item);
+          
+          // Verificar si está en cache en qBittorrent
+          if (qbtClient) {
+            try {
+              const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
+              if (enCache.length > 0) {
+                title = `⚡ ${title}`;
+              }
+            } catch (error) {
+              // Si falla la verificación, continuar sin el emoji
+              console.log(`Error verificando cache para ${item.id}: ${error.message}`);
+            }
+          }
+          
           const urlF = `${domain}/${addonKey}/rd2/${seasonNumber}/${episodeNumber}/${item.id}`;
           streams.push({ title, url: urlF });
         }

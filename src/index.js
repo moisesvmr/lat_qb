@@ -92,12 +92,23 @@ fastify.get('/:add_key/stream/:type/:id.json', {
   const { type, id } = request.params;
   
   try {
+    // Crear cliente qBittorrent para verificar cache
+    let qbtClient = null;
+    try {
+      qbtClient = new QBittorrentClient(QBIT_HOST, QBIT_USER, QBIT_PASS);
+      await qbtClient.connect();
+    } catch (error) {
+      console.log(`⚠️  No se pudo conectar a qBittorrent para verificar cache: ${error.message}`);
+      // Continuar sin verificar cache
+    }
+    
     const streams = await consultarLatamTmdb(
       id,
       LATAM_TOKEN,
       TMDB_KEY,
       DOMAIN,
-      ADDON_KEY
+      ADDON_KEY,
+      qbtClient
     );
     return { streams };
   } catch (error) {

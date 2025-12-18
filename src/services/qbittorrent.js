@@ -87,23 +87,33 @@ class QBittorrentClient {
     console.log(`   Host: ${this.host}`);
 
     try {
-      const params = new URLSearchParams();
-      params.append('urls', torrentUrl);
-      params.append('tags', etiqueta);
-      params.append('sequentialDownload', 'true');
-      params.append('firstLastPiecePrio', 'true');
+      const FormData = require('form-data');
+      const formData = new FormData();
+      
+      formData.append('urls', torrentUrl);
+      formData.append('tags', etiqueta);
+      formData.append('sequentialDownload', 'true');
+      formData.append('firstLastPiecePrio', 'true');
 
-      const response = await this.session.post('/api/v2/torrents/add', params, {
+      const response = await this.session.post('/api/v2/torrents/add', formData, {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          ...formData.getHeaders()
         }
       });
 
       console.log(`   Status code: ${response.status}`);
-      console.log(`   Response: ${response.data}`);
+      console.log(`   Response data: ${JSON.stringify(response.data)}`);
+      console.log(`   Response type: ${typeof response.data}`);
 
+      // qBittorrent puede devolver "Ok." o simplemente status 200
       if (response.status === 200) {
-        console.log(`   ✅ Torrent agregado exitosamente`);
+        if (response.data === 'Ok.' || response.data === '' || !response.data) {
+          console.log(`   ✅ Torrent agregado exitosamente`);
+        } else if (response.data.includes && response.data.includes('Fails')) {
+          console.log(`   ❌ Error: ${response.data}`);
+        } else {
+          console.log(`   ⚠️  Respuesta inesperada: ${response.data}`);
+        }
       } else {
         console.log(`   ❌ Error al agregar el torrent`);
       }
