@@ -124,53 +124,44 @@ async function convertirImdbATmdb(id, apiKey) {
  */
 async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey, qbtClient = null) {
   const { id: tmdbId, type: tipo } = await convertirImdbATmdb(id, tmdbKey);
+  
+  // Inicializar array de streams
+  const streams = [];
+  
+  // Agregar streams informativos al inicio (solo una vez)
+  // Stream 1: Información del tracker
+  try {
+    const userInfo = await obtenerInfoUsuario(token);
+    if (userInfo) {
+      streams.push({
+        name: 'Lat-Team',
+        title: `👤 ${userInfo.username} [${userInfo.group}]\n📊 Ratio: ${userInfo.ratio} | Buffer: ${userInfo.buffer}\n⬆️  Up: ${userInfo.uploaded} | ⬇️  Down: ${userInfo.downloaded}\n🌱 Seeding: ${userInfo.seeding} | 🔻 Leeching: ${userInfo.leeching}\n🎁 Bonus: ${userInfo.seedbonus} | ⚠️  H&R: ${userInfo.hit_and_runs}`,
+        url: 'stremio:///detail/tracker/info'
+      });
+    }
+  } catch (error) {
+    console.log(`Error obteniendo info usuario: ${error.message}`);
+  }
 
-  if (tipo === 'movie') {
-    // Eliminar las 'tt' de id
-    const streams = [];
-    const imdbId = id.replace('tt', '');
-    
-    // Agregar streams informativos al inicio
-    // Stream 1: Información del tracker
+  // Stream 2: Información de qBittorrent
+  if (qbtClient) {
     try {
-      const userInfo = await obtenerInfoUsuario(token);
-      if (userInfo) {
-        const infoLines = [
-          `👤 ${userInfo.username} [${userInfo.group}]`,
-          `📊 Ratio: ${userInfo.ratio} | Buffer: ${userInfo.buffer}`,
-          `⬆️  Up: ${userInfo.uploaded} | ⬇️  Down: ${userInfo.downloaded}`,
-          `🌱 Seeding: ${userInfo.seeding} | 🔻 Leeching: ${userInfo.leeching}`,
-          `🎁 Bonus: ${userInfo.seedbonus} | ⚠️  H&R: ${userInfo.hit_and_runs}`
-        ];
+      const qbtInfo = await qbtClient.obtenerInfoTransferencia();
+      if (qbtInfo) {
         streams.push({
-          title: infoLines.join('\n'),
-          url: '#'
+          name: 'Lat-Team',
+          title: `🖥️  qBittorrent Stats\n⬇️  ${qbtInfo.dlSpeed}/s | ⬆️  ${qbtInfo.upSpeed}/s\n📥 Downloaded: ${qbtInfo.dlData}/s\n📤 Uploaded: ${qbtInfo.upData}\n💾 Espacio libre: ${qbtInfo.freeSpace}`,
+          url: 'stremio:///detail/qbittorrent/stats'
         });
       }
     } catch (error) {
-      console.log(`Error obteniendo info usuario: ${error.message}`);
+      console.log(`Error obteniendo info qBittorrent: ${error.message}`);
     }
+  }
 
-    // Stream 2: Información de qBittorrent
-    if (qbtClient) {
-      try {
-        const qbtInfo = await qbtClient.obtenerInfoTransferencia();
-        if (qbtInfo) {
-          const infoLines = [
-            `🖥️  qBittorrent Stats`,
-            `⬇️  ${qbtInfo.dlSpeed}/s | ⬆️  ${qbtInfo.upSpeed}/s`,
-            `📥 Downloaded: ${qbtInfo.dlData} | 📤 Uploaded: ${qbtInfo.upData}`,
-            `💾 Espacio libre: ${qbtInfo.freeSpace}`
-          ];
-          streams.push({
-            title: infoLines.join('\n'),
-            url: '#'
-          });
-        }
-      } catch (error) {
-        console.log(`Error obteniendo info qBittorrent: ${error.message}`);
-      }
-    }
+  if (tipo === 'movie') {
+    // Eliminar las 'tt' de id
+    const imdbId = id.replace('tt', '');
     
     // Primera consulta por IMDB
     const url1 = `https://lat-team.com/api/torrents/filter?imdbId=${imdbId}&categories[]=1&alive=True&api_token=${token}`;
@@ -238,55 +229,12 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey, qbtClien
     return Object.values(uniqueStreams);
   } else {
     // Es una serie
-    const streams = [];
     const idParts = id.split(':');
     const imdb = idParts[0].replace('tt', '');
     
     const { id: tmdbId } = await convertirImdbATmdb(idParts[0], tmdbKey);
     const seasonNumber = idParts[1];
     const episodeNumber = idParts[2];
-
-    // Agregar streams informativos al inicio
-    // Stream 1: Información del tracker
-    try {
-      const userInfo = await obtenerInfoUsuario(token);
-      if (userInfo) {
-        const infoLines = [
-          `👤 ${userInfo.username} [${userInfo.group}]`,
-          `📊 Ratio: ${userInfo.ratio} | Buffer: ${userInfo.buffer}`,
-          `⬆️  Up: ${userInfo.uploaded} | ⬇️  Down: ${userInfo.downloaded}`,
-          `🌱 Seeding: ${userInfo.seeding} | 🔻 Leeching: ${userInfo.leeching}`,
-          `🎁 Bonus: ${userInfo.seedbonus} | ⚠️  H&R: ${userInfo.hit_and_runs}`
-        ];
-        streams.push({
-          title: infoLines.join('\n'),
-          url: '#'
-        });
-      }
-    } catch (error) {
-      console.log(`Error obteniendo info usuario: ${error.message}`);
-    }
-
-    // Stream 2: Información de qBittorrent
-    if (qbtClient) {
-      try {
-        const qbtInfo = await qbtClient.obtenerInfoTransferencia();
-        if (qbtInfo) {
-          const infoLines = [
-            `🖥️  qBittorrent Stats`,
-            `⬇️  ${qbtInfo.dlSpeed}/s | ⬆️  ${qbtInfo.upSpeed}/s`,
-            `📥 Downloaded: ${qbtInfo.dlData} | 📤 Uploaded: ${qbtInfo.upData}`,
-            `💾 Espacio libre: ${qbtInfo.freeSpace}`
-          ];
-          streams.push({
-            title: infoLines.join('\n'),
-            url: '#'
-          });
-        }
-      } catch (error) {
-        console.log(`Error obteniendo info qBittorrent: ${error.message}`);
-      }
-    }
 
     // Primera consulta por IMDB
     const url1 = `https://lat-team.com/api/torrents/filter?imdbId=${imdb}&categories[]=2&categories[]=5&categories[]=8&categories[]=20&alive=True&api_token=${token}`;
