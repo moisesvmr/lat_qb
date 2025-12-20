@@ -23,7 +23,8 @@ const QBIT_HOST = process.env.QBIT_HOST;
 const QBIT_USER = process.env.QBIT_USER;
 const QBIT_PASS = process.env.QBIT_PASS;
 const TORRENT_API_KEY = process.env.TORRENT_API_KEY;
-const TORRENT_BASE_PATH = process.env.TORRENT_BASE_PATH;
+const TORRENT_MOVIES_PATH = process.env.TORRENT_MOVIES_PATH;
+const TORRENT_SERIES_PATH = process.env.TORRENT_SERIES_PATH;
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5');
 const RETRY_DELAY = parseInt(process.env.RETRY_DELAY || '2');
 const STREAM_API_URL = process.env.STREAM_API_URL ;
@@ -171,7 +172,7 @@ fastify.route({
       let torrentsExistentes = await qbt.obtenerTorrentsConEtiqueta(id);
       if (torrentsExistentes.length === 0) {
         const torrentUrl = `https://lat-team.com/torrent/download/${id}.${TORRENT_API_KEY}`;
-        await qbt.agregarTorrentDesdeUrl(torrentUrl, id);
+        await qbt.agregarTorrentDesdeUrl(torrentUrl, TORRENT_MOVIES_PATH);
         await sleep(RETRY_DELAY); // Dar tiempo inicial
       } else {
         console.log(`Torrent ${id} ya existe, reutilizando...`);
@@ -184,7 +185,7 @@ fastify.route({
         if (torrentsExistentes.length > 0) {
           for (const torrentPath of torrentsExistentes) {
             const nuevaUrl = await qbt.obtenerStreamsDeTorrent(
-              torrentPath,
+              torrentPath,  // Ya incluye la ruta completa desde qBittorrent
               STREAM_API_URL,
               STREAM_API_TOKEN,
               STREAM_API_VERIFY_SSL
@@ -249,7 +250,7 @@ fastify.route({
       let torrentsExistentes = await qbt.obtenerTorrentsConEtiqueta(id);
       if (torrentsExistentes.length === 0) {
         const torrentUrl = `https://lat-team.com/torrent/download/${id}.${TORRENT_API_KEY}`;
-        await qbt.agregarTorrentDesdeUrl(torrentUrl, id);
+        await qbt.agregarTorrentDesdeUrl(torrentUrl, TORRENT_SERIES_PATH);
         await sleep(RETRY_DELAY); // Dar tiempo inicial
       } else {
         console.log(`Torrent ${id} ya existe, reutilizando...`);
@@ -274,7 +275,7 @@ fastify.route({
           console.log(`ID Capítulo: ${idArchivo}, Ruta: ${cleanPath}`);
 
           await qbt.subirPrioridadArchivo(hash, idArchivo);
-          const location = `${TORRENT_BASE_PATH}/${cleanPath}`;
+          const location = `${TORRENT_SERIES_PATH}/${cleanPath}`;
           const nuevaUrl = await qbt.obtenerStreamsDeTorrent(
             location,
             STREAM_API_URL,

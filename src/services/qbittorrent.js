@@ -78,12 +78,12 @@ class QBittorrentClient {
   }
 
   /**
-   * Agregar torrent desde URL con etiqueta y descarga secuencial
+   * Agregar torrent desde URL con directorio específico y descarga secuencial
    */
-  async agregarTorrentDesdeUrl(torrentUrl, etiqueta) {
+  async agregarTorrentDesdeUrl(torrentUrl, savePath = null) {
     console.log(`\n➕ [agregar_torrent_desde_url] Agregando torrent...`);
     console.log(`   URL: ${torrentUrl}`);
-    console.log(`   Etiqueta: ${etiqueta}`);
+    console.log(`   Save Path: ${savePath || 'default'}`);
     console.log(`   Host: ${this.host}`);
 
     try {
@@ -91,9 +91,14 @@ class QBittorrentClient {
       const formData = new FormData();
       
       formData.append('urls', torrentUrl);
-      formData.append('tags', etiqueta);
       formData.append('sequentialDownload', 'true');
       formData.append('firstLastPiecePrio', 'true');
+      
+      // Agregar directorio de descarga si se especifica
+      if (savePath) {
+        formData.append('savepath', savePath);
+        formData.append('autoTMM', 'false'); // Deshabilitar gestión automática de torrents
+      }
 
       const response = await this.session.post('/api/v2/torrents/add', formData, {
         headers: {
