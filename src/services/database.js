@@ -86,8 +86,11 @@ class TorrentDatabase {
    */
   set(latamId, torrentInfo) {
     const id = latamId.toString();
+    const existingEntry = this.data.torrents[id];
+    
     this.data.torrents[id] = {
       ...torrentInfo,
+      addedAt: existingEntry?.addedAt || new Date().toISOString(), // Preservar fecha original
       updatedAt: new Date().toISOString()
     };
     
@@ -149,15 +152,21 @@ class TorrentDatabase {
     const movies = torrents.filter(t => t.type === 'movie').length;
     const series = torrents.filter(t => t.type === 'series').length;
     
+    let oldestEntry = null;
+    if (torrents.length > 0) {
+      const oldest = torrents.reduce((oldest, t) => {
+        const oldestDate = new Date(oldest.addedAt || oldest.updatedAt);
+        const currentDate = new Date(t.addedAt || t.updatedAt);
+        return currentDate < oldestDate ? t : oldest;
+      });
+      oldestEntry = oldest.addedAt || oldest.updatedAt;
+    }
+    
     return {
       total: torrents.length,
       movies,
       series,
-      oldestEntry: torrents.length > 0 
-        ? torrents.reduce((oldest, t) => 
-            new Date(t.addedAt) < new Date(oldest.addedAt) ? t : oldest
-          ).addedAt
-        : null
+      oldestEntry
     };
   }
 
@@ -170,7 +179,12 @@ class TorrentDatabase {
     
     let removed = 0;
     for (const [id, torrent] of Object.entries(this.data.torrents)) {
-      if (new Date(torrent.addedAt) < cutoffDate) {
+      const entryDate = new Date(torrent.addedAt || torrent.updatedAt);
+      if (entryDate < cutoffDate) {
+        // Eliminar del índice hash
+        if (torrent.infoHash) {
+          this.hashIndex.delete(torrent.infoHash);
+        }
         delete this.data.torrents[id];
         removed++;
       }
@@ -178,9 +192,8 @@ class TorrentDatabase {
     
     if (removed > 0) {
       this.save();
-      console.log(`🧹 Limpieza: ${removed} torrents antiguos eliminados`);
+      console.log(`🧹 Limpieza completada: ${removed} torrents antiguos eliminados`);
     }
-    
     return removed;
   }
 }

@@ -29,8 +29,11 @@ class BencodeDecoder {
   decodeInteger() {
     this.index++; // skip 'i'
     let end = this.index;
-    while (String.fromCharCode(this.buffer[end]) !== 'e') {
+    while (end < this.buffer.length && String.fromCharCode(this.buffer[end]) !== 'e') {
       end++;
+    }
+    if (end >= this.buffer.length) {
+      throw new Error(`Malformed bencode: missing 'e' terminator for integer at position ${this.index}`);
     }
     const value = parseInt(this.buffer.slice(this.index, end).toString('ascii'));
     this.index = end + 1;
@@ -39,11 +42,20 @@ class BencodeDecoder {
 
   decodeString() {
     let colonIndex = this.index;
-    while (String.fromCharCode(this.buffer[colonIndex]) !== ':') {
+    while (colonIndex < this.buffer.length && String.fromCharCode(this.buffer[colonIndex]) !== ':') {
       colonIndex++;
     }
+    if (colonIndex >= this.buffer.length) {
+      throw new Error(`Malformed bencode: missing ':' separator for string at position ${this.index}`);
+    }
     const length = parseInt(this.buffer.slice(this.index, colonIndex).toString('ascii'));
+    if (isNaN(length) || length < 0) {
+      throw new Error(`Malformed bencode: invalid string length at position ${this.index}`);
+    }
     this.index = colonIndex + 1;
+    if (this.index + length > this.buffer.length) {
+      throw new Error(`Malformed bencode: string length exceeds buffer at position ${this.index}`);
+    }
     const value = this.buffer.slice(this.index, this.index + length);
     this.index += length;
     return value;
@@ -52,8 +64,11 @@ class BencodeDecoder {
   decodeList() {
     this.index++; // skip 'l'
     const list = [];
-    while (String.fromCharCode(this.buffer[this.index]) !== 'e') {
+    while (this.index < this.buffer.length && String.fromCharCode(this.buffer[this.index]) !== 'e') {
       list.push(this.decode());
+    }
+    if (this.index >= this.buffer.length) {
+      throw new Error(`Malformed bencode: missing 'e' terminator for list at position ${this.index}`);
     }
     this.index++; // skip 'e'
     return list;
@@ -62,10 +77,13 @@ class BencodeDecoder {
   decodeDictionary() {
     this.index++; // skip 'd'
     const dict = {};
-    while (String.fromCharCode(this.buffer[this.index]) !== 'e') {
+    while (this.index < this.buffer.length && String.fromCharCode(this.buffer[this.index]) !== 'e') {
       const key = this.decodeString().toString('utf8');
       const value = this.decode();
       dict[key] = value;
+    }
+    if (this.index >= this.buffer.length) {
+      throw new Error(`Malformed bencode: missing 'e' terminator for dictionary at position ${this.index}`);
     }
     this.index++; // skip 'e'
     return dict;

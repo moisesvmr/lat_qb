@@ -46,6 +46,7 @@ async function verificarCacheBatch(qbtClient, itemIds) {
     }
     
     if (hashes.length === 0) {
+      console.log(`⚠️  Batch: Ningún torrent en DB, retornando mapa vacío`);
       return new Map(); // Ninguno en DB
     }
     
@@ -65,12 +66,20 @@ async function verificarCacheBatch(qbtClient, itemIds) {
         const enCache = dbEntry && existingHashes.has(dbEntry.infoHash);
         cacheMap.set(itemId, enCache);
       }
+      
+      const cached = Array.from(cacheMap.values()).filter(v => v).length;
+      console.log(`⚡ Batch verificado: ${itemIds.length} torrents en 1 llamada (${cached} en cache)`);
+    } else {
+      console.log(`⚠️  Batch: respuesta inesperada de qBittorrent (status: ${response.status})`);
     }
     
-    console.log(`⚡ Batch verificado: ${itemIds.length} torrents en 1 llamada (${cacheMap.size} en cache)`);
     return cacheMap;
   } catch (error) {
-    console.log(`Error verificando cache batch: ${error.message}`);
+    console.log(`❌ Error verificando cache batch: ${error.message}`);
+    console.log(`⚠️  Fallback: retornando mapa vacío (todos se considerarán fuera de cache)`);
+    
+    // MEJORA: Opcionalmente podríamos hacer fallback a verificación individual
+    // Para evitar trabajo innecesario, pero por ahora retornamos vacío para ser seguro
     return new Map();
   }
 }
