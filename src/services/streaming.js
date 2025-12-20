@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { formatSize, parseMediaInfo } = require('../utils/helpers');
 const { obtenerInfoUsuario } = require('./tracker');
+const { verificarCacheQbt, buscarTorrents, coincideEpisodio } = require('./streaming-helpers');
 
 /**
  * Formatear título del stream al estilo Torrentio/Aiostream
@@ -92,7 +93,16 @@ function formatStreamTitle(item) {
  * Convertir ID de IMDB a TMDB
  */
 async function convertirImdbATmdb(id, apiKey) {
-  const url = `https://api.themoviedb.org/3/find/${id}?api_key=${apiKey}&external_source=imdb_id`;
+  // Solo si id tiene el formato tt32766897:1:2 tomar la parte de IMDB
+  let imdbId = id;
+  if (id.includes(':')) {
+    const idParts = id.split(':');
+    imdbId = idParts[0];
+  }
+
+  const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${apiKey}&external_source=imdb_id`;
+
+  console.log(`Convirtiendo IMDB a TMDB con URL: ${url}`);
   
   try {
     const response = await axios.get(url);
@@ -160,68 +170,41 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey, qbtClien
   }
 
   if (tipo === 'movie') {
-    // Eliminar las 'tt' de id
     const imdbId = id.replace('tt', '');
     
-    // Primera consulta por IMDB
-    const url1 = `https://lat-team.com/api/torrents/filter?imdbId=${imdbId}&categories[]=1&alive=True&api_token=${token}`;
-    try {
-      const response1 = await axios.get(url1);
-      const latTeamData = response1.data;
-      
-      for (const item of latTeamData.data) {
+    // Procesar ambas consultas (IMDB y TMDB) de forma eficiente
+    const searchQueries = [
+      `imdbId=${imdbId}`,
+      `tmdbId=${tmdbId}`
+    ];
+    
+    const allTorrents = [];
+    for (const query of searchQueries) {
+      const torrents = await buscarTorrents(query, [1], token);
+      allTorrents.push(...torrents);
+    }
+    
+    // Procesar torrents y verificar cache
+    const processedStreams = await Promise.all(
+      allTorrents.map(async (item) => {
         let title = formatStreamTitle(item);
         
-        // Verificar si está en cache en qBittorrent
-        if (qbtClient) {
-          try {
-            const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
-            if (enCache.length > 0) {
-              title = `⚡ ${title}`;
-            }
-          } catch (error) {
-            // Si falla la verificación, continuar sin el emoji
-            console.log(`Error verificando cache para ${item.id}: ${error.message}`);
-          }
+        // Verificar cache y añadir emoji si está presente
+        const enCache = await verificarCacheQbt(qbtClient, item.id);
+        if (enCache) {
+          title = `⚡ ${title}`;
         }
         
-        const urlF = `${domain}/${addonKey}/rd1/${item.id}`;
-        streams.push({ title, url: urlF });
-      }
-    } catch (error) {
-      console.log(`Error en consulta IMDB: ${error.message}`);
-    }
-
-    // Segunda consulta por TMDB
-    const url2 = `https://lat-team.com/api/torrents/filter?tmdbId=${tmdbId}&categories[]=1&alive=True&api_token=${token}`;
-    try {
-      const response2 = await axios.get(url2);
-      const latTeamData2 = response2.data;
-      
-      for (const item of latTeamData2.data) {
-        let title = formatStreamTitle(item);
-        
-        // Verificar si está en cache en qBittorrent
-        if (qbtClient) {
-          try {
-            const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
-            if (enCache.length > 0) {
-              title = `⚡ ${title}`;
-            }
-          } catch (error) {
-            // Si falla la verificación, continuar sin el emoji
-            console.log(`Error verificando cache para ${item.id}: ${error.message}`);
-          }
-        }
-        
-        const urlF = `${domain}/${addonKey}/rd1/${item.id}`;
-        streams.push({ title, url: urlF });
-      }
-    } catch (error) {
-      console.log(`Error en consulta TMDB: ${error.message}`);
-    }
-
-    // Eliminar duplicados
+        return {
+          title,
+          url: `${domain}/${addonKey}/rd1/${item.id}`
+        };
+      })
+    );
+    
+    streams.push(...processedStreams);
+    
+    // Eliminar duplicados por URL
     const uniqueStreams = {};
     for (const stream of streams) {
       uniqueStreams[stream.url] = stream;
@@ -231,80 +214,42 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey, qbtClien
     // Es una serie
     const idParts = id.split(':');
     const imdb = idParts[0].replace('tt', '');
-    
-    const { id: tmdbId } = await convertirImdbATmdb(idParts[0], tmdbKey);
     const seasonNumber = idParts[1];
     const episodeNumber = idParts[2];
 
-    // Primera consulta por IMDB
-    const url1 = `https://lat-team.com/api/torrents/filter?imdbId=${imdb}&categories[]=2&categories[]=5&categories[]=8&categories[]=20&alive=True&api_token=${token}`;
-    try {
-      const response1 = await axios.get(url1);
-      const latTeamData = response1.data;
-      
-      for (const item of latTeamData.data) {
-        const name = item.attributes.name;
-        const seasonEpisode = `S${seasonNumber.padStart(2, '0')}E${episodeNumber.padStart(2, '0')}`;
-        const seasonOnly = `S${seasonNumber.padStart(2, '0')} `;
-        
-        if (name.includes(seasonEpisode) || name.includes(seasonOnly)) {
+    // Procesar ambas consultas (IMDB y TMDB)
+    const searchQueries = [
+      `imdbId=${imdb}`,
+      `tmdbId=${tmdbId}`
+    ];
+    
+    const allTorrents = [];
+    for (const query of searchQueries) {
+      const torrents = await buscarTorrents(query, [2, 5, 8, 20], token);
+      allTorrents.push(...torrents);
+    }
+    
+    // Filtrar por episodio y procesar
+    const processedStreams = await Promise.all(
+      allTorrents
+        .filter(item => coincideEpisodio(item.attributes.name, seasonNumber, episodeNumber))
+        .map(async (item) => {
           let title = formatStreamTitle(item);
           
-          // Verificar si está en cache en qBittorrent
-          if (qbtClient) {
-            try {
-              const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
-              if (enCache.length > 0) {
-                title = `⚡ ${title}`;
-              }
-            } catch (error) {
-              // Si falla la verificación, continuar sin el emoji
-              console.log(`Error verificando cache para ${item.id}: ${error.message}`);
-            }
+          // Verificar cache
+          const enCache = await verificarCacheQbt(qbtClient, item.id);
+          if (enCache) {
+            title = `⚡ ${title}`;
           }
           
-          const urlF = `${domain}/${addonKey}/rd2/${seasonNumber}/${episodeNumber}/${item.id}`;
-          streams.push({ title, url: urlF });
-        }
-      }
-    } catch (error) {
-      console.log(`Error en consulta IMDB serie: ${error.message}`);
-    }
-
-    // Segunda consulta por TMDB
-    const url2 = `https://lat-team.com/api/torrents/filter?tmdbId=${tmdbId}&categories[]=2&categories[]=5&categories[]=8&categories[]=20&alive=True&api_token=${token}`;
-    try {
-      const response2 = await axios.get(url2);
-      const latTeamData2 = response2.data;
-      
-      for (const item of latTeamData2.data) {
-        const name = item.attributes.name;
-        const seasonEpisode = `S${seasonNumber.padStart(2, '0')}E${episodeNumber.padStart(2, '0')}`;
-        const seasonOnly = `S${seasonNumber.padStart(2, '0')} `;
-        
-        if (name.includes(seasonEpisode) || name.includes(seasonOnly)) {
-          let title = formatStreamTitle(item);
-          
-          // Verificar si está en cache en qBittorrent
-          if (qbtClient) {
-            try {
-              const enCache = await qbtClient.obtenerTorrentsConEtiqueta(item.id.toString());
-              if (enCache.length > 0) {
-                title = `⚡ ${title}`;
-              }
-            } catch (error) {
-              // Si falla la verificación, continuar sin el emoji
-              console.log(`Error verificando cache para ${item.id}: ${error.message}`);
-            }
-          }
-          
-          const urlF = `${domain}/${addonKey}/rd2/${seasonNumber}/${episodeNumber}/${item.id}`;
-          streams.push({ title, url: urlF });
-        }
-      }
-    } catch (error) {
-      console.log(`Error en consulta TMDB serie: ${error.message}`);
-    }
+          return {
+            title,
+            url: `${domain}/${addonKey}/rd2/${seasonNumber}/${episodeNumber}/${item.id}`
+          };
+        })
+    );
+    
+    streams.push(...processedStreams);
 
     // Eliminar duplicados
     const uniqueStreams = {};

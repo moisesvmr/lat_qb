@@ -351,47 +351,39 @@ class QBittorrentClient {
     console.log(`   File ID a priorizar: ${fileId}`);
     console.log(`   Host: ${this.host}`);
 
-    // Primero obtener los archivos del torrent
+    // Obtener archivos una sola vez
     const archivos = await this.obtenerArchivosDeTorrent(torrentHash);
     console.log(`   Total archivos: ${archivos.length}`);
 
-    // Bajar la prioridad de todos los archivos a 1
-    for (const archivo of archivos) {
+    // Crear array de promesas para cambiar prioridades en paralelo
+    const prioridadPromises = archivos.map(archivo => {
       const paramsForm = new URLSearchParams();
       paramsForm.append('hash', torrentHash);
       paramsForm.append('id', archivo.id);
-      paramsForm.append('priority', '1');
+      paramsForm.append('priority', archivo.id === fileId ? '7' : '1');
 
-      const responseBajar = await this.session.post('/api/v2/torrents/filePrio', paramsForm, {
+      return this.session.post('/api/v2/torrents/filePrio', paramsForm, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         }
+      }).then(response => {
+        if (response.status === 200) {
+          const prioText = archivo.id === fileId ? 'prioridad 7 (máxima)' : 'prioridad 1';
+          console.log(`   ✓ Archivo ${archivo.id} → ${prioText}`);
+          return true;
+        } else {
+          console.log(`   ✗ Error archivo ${archivo.id}`);
+          return false;
+        }
+      }).catch(error => {
+        console.log(`   ✗ Error archivo ${archivo.id}: ${error.message}`);
+        return false;
       });
-
-      if (responseBajar.status === 200) {
-        console.log(`   ✓ Archivo ${archivo.id} → prioridad 1`);
-      } else {
-        console.log(`   ✗ Error bajando prioridad archivo ${archivo.id}`);
-      }
-    }
-
-    // Subir la prioridad del archivo específico a 7
-    const paramsForm = new URLSearchParams();
-    paramsForm.append('hash', torrentHash);
-    paramsForm.append('id', fileId);
-    paramsForm.append('priority', '7');
-
-    const responseSubir = await this.session.post('/api/v2/torrents/filePrio', paramsForm, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
     });
 
-    if (responseSubir.status === 200) {
-      console.log(`   ✅ Archivo ${fileId} → prioridad 7 (máxima)`);
-    } else {
-      console.log(`   ❌ Error subiendo prioridad archivo ${fileId}`);
-    }
+    // Ejecutar todas las actualizaciones en paralelo
+    await Promise.all(prioridadPromises);
+    console.log(`   ✅ Prioridades actualizadas`);
   }
 
   /**

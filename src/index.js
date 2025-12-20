@@ -33,6 +33,24 @@ const CACHE_DURATION = parseInt(process.env.CACHE_DURATION || '3600');
 const PORT = parseInt(process.env.PORT || '5000');
 const HOST = process.env.HOST || '0.0.0.0';
 
+// Cliente qBittorrent global (reutilizable)
+let qbtGlobal = null;
+
+// Obtener o crear cliente qBittorrent
+async function getQbtClient() {
+  if (!qbtGlobal) {
+    qbtGlobal = new QBittorrentClient(QBIT_HOST, QBIT_USER, QBIT_PASS);
+    try {
+      await qbtGlobal.connect();
+    } catch (error) {
+      console.log(`⚠️  Error conectando qBittorrent: ${error.message}`);
+      qbtGlobal = null;
+      throw error;
+    }
+  }
+  return qbtGlobal;
+}
+
 // Manifest del addon
 const MANIFEST = {
   id: 'org.stremio.Lat-Team',
@@ -92,14 +110,12 @@ fastify.get('/:add_key/stream/:type/:id.json', {
   const { type, id } = request.params;
   
   try {
-    // Crear cliente qBittorrent para verificar cache
+    // Obtener cliente qBittorrent (reutilizable)
     let qbtClient = null;
     try {
-      qbtClient = new QBittorrentClient(QBIT_HOST, QBIT_USER, QBIT_PASS);
-      await qbtClient.connect();
+      qbtClient = await getQbtClient();
     } catch (error) {
-      console.log(`⚠️  No se pudo conectar a qBittorrent para verificar cache: ${error.message}`);
-      // Continuar sin verificar cache
+      console.log(`⚠️  No se pudo conectar a qBittorrent: ${error.message}`);
     }
     
     const streams = await consultarLatamTmdb(
@@ -149,27 +165,25 @@ fastify.route({
     console.log(`Redireccionando película ID: ${id}`);
 
     try {
-      const qbt = new QBittorrentClient(QBIT_HOST, QBIT_USER, QBIT_PASS);
-      await qbt.connect();
+      const qbt = await getQbtClient();
 
       // Verificar si el torrent ya existe
-      const torrentsExistentes = await qbt.obtenerTorrentsConEtiqueta(id);
+      let torrentsExistentes = await qbt.obtenerTorrentsConEtiqueta(id);
       if (torrentsExistentes.length === 0) {
         const torrentUrl = `https://lat-team.com/torrent/download/${id}.${TORRENT_API_KEY}`;
         await qbt.agregarTorrentDesdeUrl(torrentUrl, id);
+        await sleep(RETRY_DELAY); // Dar tiempo inicial
       } else {
         console.log(`Torrent ${id} ya existe, reutilizando...`);
       }
 
       // Reintentar hasta obtener el torrent
-      let nuevaUrl = null;
       for (let intento = 0; intento < MAX_RETRIES; intento++) {
-        await sleep(RETRY_DELAY);
-        const torrentInfo = await qbt.obtenerTorrentsConEtiqueta(id);
+        torrentsExistentes = await qbt.obtenerTorrentsConEtiqueta(id);
 
-        if (torrentInfo.length > 0) {
-          for (const torrentPath of torrentInfo) {
-            nuevaUrl = await qbt.obtenerStreamsDeTorrent(
+        if (torrentsExistentes.length > 0) {
+          for (const torrentPath of torrentsExistentes) {
+            const nuevaUrl = await qbt.obtenerStreamsDeTorrent(
               torrentPath,
               STREAM_API_URL,
               STREAM_API_TOKEN,
@@ -184,9 +198,9 @@ fastify.route({
         }
 
         console.log(`Intento ${intento + 1}/${MAX_RETRIES} - Esperando torrent...`);
+        if (intento < MAX_RETRIES - 1) await sleep(RETRY_DELAY);
       }
 
-      // Si después de todos los intentos no hay URL
       return reply.code(404).send({ error: 'No se pudo obtener el stream después de varios intentos' });
     } catch (error) {
       console.log(`Error en redireccionar: ${error.message}`);
@@ -229,46 +243,39 @@ fastify.route({
     console.log(`Redireccionando serie S${season}E${episode} ID: ${id}`);
 
     try {
-      const qbt = new QBittorrentClient(QBIT_HOST, QBIT_USER, QBIT_PASS);
-      await qbt.connect();
+      const qbt = await getQbtClient();
 
       // Verificar si el torrent ya existe
-      const torrentsExistentes = await qbt.obtenerTorrentsConEtiqueta(id);
+      let torrentsExistentes = await qbt.obtenerTorrentsConEtiqueta(id);
       if (torrentsExistentes.length === 0) {
         const torrentUrl = `https://lat-team.com/torrent/download/${id}.${TORRENT_API_KEY}`;
         await qbt.agregarTorrentDesdeUrl(torrentUrl, id);
+        await sleep(RETRY_DELAY); // Dar tiempo inicial
       } else {
         console.log(`Torrent ${id} ya existe, reutilizando...`);
       }
 
       // Reintentar hasta obtener el episodio
-      let nuevaUrl = null;
       for (let intento = 0; intento < MAX_RETRIES; intento++) {
-        await sleep(RETRY_DELAY);
-
         try {
           const { idArchivo, rutaArchivo, hash } = await qbt.obtenerIdCapitulo(season, episode, id);
 
           // Limpiar ruta de archivo
           let cleanPath = rutaArchivo;
-          if (cleanPath.split('/').length > 2) {
-            const parts = cleanPath.split('/');
+          const parts = cleanPath.split('/');
+          if (parts.length > 2) {
             cleanPath = parts.slice(1).join('/');
           }
-
-          // Si las dos partes separadas por / son iguales, eliminar una
-          if (cleanPath.includes('/')) {
-            const parts = cleanPath.split('/');
-            if (parts.length === 2 && parts[0] === parts[1]) {
-              cleanPath = parts[1];
-            }
+          // Si las dos partes son iguales, usar solo una
+          if (parts.length === 2 && parts[0] === parts[1]) {
+            cleanPath = parts[1];
           }
 
           console.log(`ID Capítulo: ${idArchivo}, Ruta: ${cleanPath}`);
 
           await qbt.subirPrioridadArchivo(hash, idArchivo);
           const location = `${TORRENT_BASE_PATH}/${cleanPath}`;
-          nuevaUrl = await qbt.obtenerStreamsDeTorrent(
+          const nuevaUrl = await qbt.obtenerStreamsDeTorrent(
             location,
             STREAM_API_URL,
             STREAM_API_TOKEN,
@@ -283,9 +290,10 @@ fastify.route({
         } catch (error) {
           console.log(`Intento ${intento + 1}/${MAX_RETRIES} - ${error.message}`);
         }
+        
+        if (intento < MAX_RETRIES - 1) await sleep(RETRY_DELAY);
       }
 
-      // Si después de todos los intentos no hay URL
       return reply.code(404).send({ error: 'No se pudo obtener el stream del episodio después de varios intentos' });
     } catch (error) {
       console.log(`Error en redireccionar2: ${error.message}`);
