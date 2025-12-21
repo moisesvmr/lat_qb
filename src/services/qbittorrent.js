@@ -104,7 +104,8 @@ class QBittorrentClient {
   async agregarTorrentDesdeUrl(torrentUrl, savePath = null) {
     console.log(`\n➕ [agregar_torrent_desde_url] Agregando torrent...`);
     console.log(`   URL: ${torrentUrl}`);
-    console.log(`   Save Path: ${savePath || 'default'}`);
+    console.log(`   Save Path recibido: ${savePath || 'default'}`);
+    console.log(`   Save Path tipo: ${typeof savePath}`);
     console.log(`   Host: ${this.host}`);
 
     try {
@@ -117,8 +118,12 @@ class QBittorrentClient {
       
       // Agregar directorio de descarga si se especifica
       if (savePath) {
+        console.log(`   🔧 Configurando savePath: "${savePath}"`);
         formData.append('savepath', savePath);
         formData.append('autoTMM', 'false'); // Deshabilitar gestión automática de torrents
+        console.log(`   ✓ savepath y autoTMM agregados al formData`);
+      } else {
+        console.log(`   ⚠️  No se especificó savePath, usando directorio por defecto de qBittorrent`);
       }
 
       const response = await this.session.post('/api/v2/torrents/add', formData, {

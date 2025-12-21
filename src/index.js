@@ -134,6 +134,11 @@ async function ensureTorrentExists(latamId, type) {
   
   // 6. Agregar torrent nuevo
   const savePath = type === 'movie' ? TORRENT_MOVIES_PATH : TORRENT_SERIES_PATH;
+  console.log(`📂 Tipo de contenido: ${type}`);
+  console.log(`📂 Directorio seleccionado: ${savePath}`);
+  console.log(`📂 TORRENT_MOVIES_PATH: ${TORRENT_MOVIES_PATH}`);
+  console.log(`📂 TORRENT_SERIES_PATH: ${TORRENT_SERIES_PATH}`);
+  
   await qbt.agregarTorrentDesdeUrl(torrentUrl, savePath);
   console.log(`✅ Torrent agregado a qBittorrent en: ${savePath}`);
   
@@ -386,7 +391,10 @@ const start = async () => {
   try {
     await fastify.listen({ port: PORT, host: HOST });
     console.log(`\n🚀 Servidor Fastify corriendo en http://${HOST}:${PORT}`);
-    console.log(`📦 Addon disponible en: ${DOMAIN}/${ADDON_KEY}/manifest.json\n`);
+    console.log(`📦 Addon disponible en: ${DOMAIN}/${ADDON_KEY}/manifest.json`);
+    console.log(`\n📁 Configuración de directorios:`);
+    console.log(`   Movies: ${TORRENT_MOVIES_PATH || '⚠️  NO CONFIGURADO'}`);
+    console.log(`   Series: ${TORRENT_SERIES_PATH || '⚠️  NO CONFIGURADO'}\n`);
   } catch (error) {
     fastify.log.error(error);
     process.exit(1);
