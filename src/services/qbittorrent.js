@@ -68,34 +68,26 @@ class QBittorrentClient {
     console.log(`\n🔍 [verificar_hash] Verificando hash en qBittorrent...`);
     console.log(`   Hash: ${infoHash}`);
     
-    try {
-      const response = await this.session.get(`/api/v2/torrents/info`, {
-        params: { hashes: infoHash }
-      });
+    const response = await this.session.get(`/api/v2/torrents/info`, {
+      params: { hashes: infoHash }
+    });
 
-      if (response.status === 200 && response.data.length > 0) {
-        const torrent = response.data[0];
-        console.log(`   ✅ Torrent encontrado: ${torrent.name}`);
-        console.log(`   Path: ${torrent.content_path}`);
-        return {
-          exists: true,
-          torrent: torrent
-        };
-      } else {
-        console.log('   ❌ Hash no encontrado en qBittorrent');
-        return {
-          exists: false,
+    if (response.status === 200 && response.data.length > 0) {
+      const torrent = response.data[0];
+      console.log(`   ✅ Torrent encontrado: ${torrent.name}`);
+      console.log(`   Path: ${torrent.content_path}`);
+      return {
+        exists: true,
+        torrent: torrent
+      };
+    } else {
+      console.log('   ❌ Hash no encontrado en qBittorrent');
+      return {
+        exists: false,
           torrent: null
         };
       }
-    } catch (error) {
-      // Si es 403, la sesión expiró
-      if (error.response && error.response.status === 403) {
-        console.log(`   ⚠️  Sesión expirada (403), marcando cliente como inválido`);
-        this.session = null; // Forzar reconexión
-      }
-      throw error;
-    }
+    }, 'verificarHash');
   }
 
   /**
@@ -381,13 +373,13 @@ class QBittorrentClient {
    * Obtener información de transferencia y espacio de qBittorrent
    */
   async obtenerInfoTransferencia() {
+    // Verificar que tenemos sesión activa
+    if (!this.session) {
+      console.log(`⚠️  Sin sesión activa para obtener info de transferencia`);
+      return null;
+    }
+    
     try {
-      // Verificar que tenemos sesión activa
-      if (!this.session) {
-        console.log(`⚠️  Sin sesión activa para obtener info de transferencia`);
-        return null;
-      }
-      
       const response = await this.session.get('/api/v2/transfer/info');
       
       if (response.status === 200) {
@@ -411,13 +403,8 @@ class QBittorrentClient {
       }
       return null;
     } catch (error) {
-      // Si es 403, la sesión expiró
-      if (error.response && error.response.status === 403) {
-        console.log(`⚠️  Sesión qBittorrent expirada (403), requiere reconexión`);
-      } else {
-        console.log(`Error obteniendo info de transferencia: ${error.message}`);
-      }
-      return null;
+      console.log(`Error obteniendo info de transferencia: ${error.message}`);
+      return null; // No fallar, solo retornar null
     }
   }
 }
