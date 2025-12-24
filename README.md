@@ -76,6 +76,7 @@ DOMAIN=http://tu-servidor.com:4000
 QBIT_HOST=http://localhost:8080
 QBIT_USER=admin
 QBIT_PASS=tu_password
+QB_KEEP_ALIVE_INTERVAL=1800
 
 # Torrent Settings
 TORRENT_MOVIES_PATH=/datos/videosc/movies  #directorio para peliculas en qbittorrent
