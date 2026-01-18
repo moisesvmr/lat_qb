@@ -60,6 +60,8 @@ const CACHE_DURATION = parseInt(process.env.CACHE_DURATION || '3600');
 const QB_KEEP_ALIVE_INTERVAL = parseInt(process.env.QB_KEEP_ALIVE_INTERVAL || '1800'); // Segundos (default: 30 min, mitad del SessionTimeout de 3600s)
 const PORT = parseInt(process.env.PORT || '5000');
 const HOST = process.env.HOST || '0.0.0.0';
+// URL local para conexiones internas del servicio (streaming)
+const LOCAL_DOMAIN = `http://127.0.0.1:${PORT}`;
 // Construir VOLUMES_PATH automáticamente desde los directorios de torrents
 const VOLUMES_PATH = process.env.VOLUMES_PATH || [TORRENT_MOVIES_PATH, TORRENT_SERIES_PATH].filter(p => p).join(',');
 const FFPROBE_CACHE_FILE = process.env.FFPROBE_CACHE_FILE || './ffprobe_cache.json';
@@ -332,7 +334,7 @@ fastify.route({
         if (exists && currentTorrent.content_path) {
           const nuevaUrl = await (await getQbtClient()).obtenerStreamsLocal(
             currentTorrent.content_path,
-            DOMAIN
+            LOCAL_DOMAIN
           );
           
           if (nuevaUrl) {
@@ -417,7 +419,7 @@ fastify.route({
           const location = `${TORRENT_SERIES_PATH}/${cleanPath}`;
           const nuevaUrl = await qbt.obtenerStreamsLocal(
             location,
-            DOMAIN
+            LOCAL_DOMAIN
           );
 
           if (nuevaUrl) {
