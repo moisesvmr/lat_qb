@@ -93,6 +93,13 @@ QBIT_USER=admin
 QBIT_PASS=tu_password
 QB_KEEP_ALIVE_INTERVAL=1800
 
+# Retry Configuration
+MAX_RETRIES=10   #numero maximo de reintentos para operaciones fallidas
+RETRY_DELAY=3   #tiempo de espera entre reintentos en segundos
+
+# Cache Configuration (in seconds) 
+CACHE_DURATION=3600  #duracion del cache en segundos
+
 # Directorios de Torrents (IMPORTANTE)
 TORRENT_MOVIES_PATH=/datos/videosc/movies
 TORRENT_SERIES_PATH=/datos/videosc/series
@@ -103,10 +110,12 @@ TORRENT_SERIES_PATH=/datos/videosc/series
 # VOLUMES_PATH=/ruta/adicional1,/ruta/adicional2  (opcional)
 FFPROBE_CACHE_FILE=./ffprobe_cache.json
 
-# Configuración del Servidor
-PORT=5000
-HOST=0.0.0.0
-CACHE_DURATION=3600
+# Server Configuration
+PORT=4000  #puerto en el que se ejecuta el servidor
+HOST=0.0.0.0  #direccion en la que se ejecuta el servidor
+LOG_LEVEL=info  #niveles: trace, debug, info, warn, error, fatal
+NODE_ENV=development  #development o production
+
 ```
 
 **⚠️ Nota importante**: Ya **NO** necesitas las variables `STREAM_API_URL`, `STREAM_API_TOKEN` ni `STREAM_API_VERIFY_SSL`. El streaming ahora es interno.
