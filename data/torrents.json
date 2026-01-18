@@ -1,5 +1,14 @@
 {
   "torrents": {
+    "4761": {
+      "infoHash": "f0bdd29f91143aabcf5f8d002dafa35c567c035c",
+      "name": "Brother.Bear.(2003).1080p.AAC.6ch.h264.mkv",
+      "size": 3024041104,
+      "files": 1,
+      "type": "movie",
+      "addedAt": "2026-01-17T22:51:00.991Z",
+      "updatedAt": "2026-01-17T22:51:01.031Z"
+    },
     "13194": {
       "infoHash": "4c61c02b99a21461bbea7c29fc8f8a7da64936cb",
       "name": "The.Super.Mario.Bros.Movie.2023.1080p.WEB-DL.DD+.5.1.Atmos.H.264.mkv",
@@ -43,7 +52,16 @@
       "files": 1,
       "type": "series",
       "addedAt": "2025-12-20T17:20:38.384Z",
-      "updatedAt": "2025-12-20T17:20:38.384Z"
+      "updatedAt": "2026-01-17T23:01:38.107Z"
+    },
+    "53914": {
+      "infoHash": "bd155c6467126cb8bad644f3e11f6b070cd482d9",
+      "name": "Adventure.Time.Fionna.and.Cake.S02E10.El.Oso.y.La.Rosa.1080p.HMAX.WEB-DL.DDP5.1.H.265-LatTeam.mkv",
+      "size": 338909023,
+      "files": 1,
+      "type": "series",
+      "addedAt": "2026-01-17T22:52:50.065Z",
+      "updatedAt": "2026-01-17T22:55:44.227Z"
     }
   }
 }

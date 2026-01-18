@@ -1,3 +1,5 @@
+const logger = require('../utils/logger');
+
 /**
  * Sistema de caché en memoria con expiración automática
  */
@@ -22,11 +24,11 @@ class Cache {
         this.hits++;
         // Reiniciar el contador al acceder
         this.cache.set(key, { url, timestamp: now });
-        console.log(`✓ Cache hit [${this.hits}/${this.hits + this.misses}] ${key} (${(duration - elapsed).toFixed(0)}s restantes)`);
+        logger.info(`✓ Cache hit [${this.hits}/${this.hits + this.misses}] ${key} (${(duration - elapsed).toFixed(0)}s restantes)`);
         return url;
       } else {
         this.misses++;
-        console.log(`✗ Cache expirado: ${key} (inactivo ${elapsed.toFixed(0)}s)`);
+        logger.info(`✗ Cache expirado: ${key} (inactivo ${elapsed.toFixed(0)}s)`);
         this.cache.delete(key);
       }
     } else {
@@ -40,7 +42,7 @@ class Cache {
    */
   set(key, url) {
     this.cache.set(key, { url, timestamp: Date.now() });
-    console.log(`✓ Cache guardado: ${key} (total: ${this.cache.size})`);
+    logger.info(`✓ Cache guardado: ${key} (total: ${this.cache.size})`);
   }
 
   /**
@@ -49,7 +51,7 @@ class Cache {
   delete(key) {
     const deleted = this.cache.delete(key);
     if (deleted) {
-      console.log(`✓ Cache eliminado: ${key}`);
+      logger.info(`✓ Cache eliminado: ${key}`);
     }
     return deleted;
   }
@@ -62,7 +64,7 @@ class Cache {
     this.cache.clear();
     this.hits = 0;
     this.misses = 0;
-    console.log(`✓ Cache limpiado: ${size} entradas eliminadas`);
+    logger.info(`✓ Cache limpiado: ${size} entradas eliminadas`);
   }
 
   /**

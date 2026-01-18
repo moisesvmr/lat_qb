@@ -10,6 +10,10 @@ package-lock.json
 *.log
 npm-debug.log*
 
+# Cache files (nuevo)
+ffprobe_cache.json
+*.cache
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -19,6 +23,11 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# PM2
+.pm2/
+pids/
+logs/
 
 # Documentation (temporal)
 #README.md

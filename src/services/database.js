@@ -1,3 +1,5 @@
+const logger = require('../utils/logger');
+
 const fs = require('fs');
 const path = require('path');
 
@@ -20,7 +22,7 @@ class TorrentDatabase {
     const dir = path.dirname(this.filePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
-      console.log(`📁 Directorio creado: ${dir}`);
+      logger.info(`📁 Directorio creado: ${dir}`);
     }
   }
 
@@ -36,9 +38,9 @@ class TorrentDatabase {
         // Reconstruir índice hash
         this.rebuildHashIndex();
         
-        console.log(`✅ Base de datos cargada: ${Object.keys(this.data.torrents).length} torrents`);
+        logger.info(`✅ Base de datos cargada: ${Object.keys(this.data.torrents).length} torrents`);
       } else {
-        console.log(`📝 Base de datos nueva creada`);
+        logger.info(`📝 Base de datos nueva creada`);
         this.save();
       }
     } catch (error) {
@@ -58,7 +60,7 @@ class TorrentDatabase {
         this.hashIndex.set(torrent.infoHash, latamId);
       }
     }
-    console.log(`🔍 Índice hash reconstruido: ${this.hashIndex.size} entradas`);
+    logger.info(`🔍 Índice hash reconstruido: ${this.hashIndex.size} entradas`);
   }
 
   /**
@@ -67,7 +69,7 @@ class TorrentDatabase {
   save() {
     try {
       fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), 'utf8');
-      console.log(`💾 Base de datos guardada: ${Object.keys(this.data.torrents).length} torrents`);
+      logger.info(`💾 Base de datos guardada: ${Object.keys(this.data.torrents).length} torrents`);
     } catch (error) {
       console.error(`❌ Error guardando base de datos: ${error.message}`);
     }
@@ -100,7 +102,7 @@ class TorrentDatabase {
     }
     
     this.save();
-    console.log(`✅ Torrent guardado en DB: ID=${id}, Hash=${torrentInfo.infoHash?.substring(0, 8)}...`);
+    logger.info(`✅ Torrent guardado en DB: ID=${id}, Hash=${torrentInfo.infoHash?.substring(0, 8)}...`);
   }
 
   /**
@@ -138,7 +140,7 @@ class TorrentDatabase {
       
       delete this.data.torrents[id];
       this.save();
-      console.log(`🗑️  Torrent eliminado de DB: ID=${id}`);
+      logger.info(`🗑️  Torrent eliminado de DB: ID=${id}`);
       return true;
     }
     return false;
@@ -192,7 +194,7 @@ class TorrentDatabase {
     
     if (removed > 0) {
       this.save();
-      console.log(`🧹 Limpieza completada: ${removed} torrents antiguos eliminados`);
+      logger.info(`🧹 Limpieza completada: ${removed} torrents antiguos eliminados`);
     }
     return removed;
   }

@@ -1,12 +1,30 @@
 require('dotenv').config();
-const fastify = require('fastify')({ logger: false });
+const logger = require('./utils/logger');
+const { validateEnv } = require('./config/validator');
+const { normalizePath } = require('./utils/path-helper');
+
+// Validar configuración antes de continuar
+try {
+  validateEnv();
+} catch (error) {
+  logger.error('Error en la configuración:');
+  logger.error(error.message);
+  process.exit(1);
+}
+
+const fastify = require('fastify')({ 
+  logger: logger,
+  disableRequestLogging: process.env.NODE_ENV === 'production'
+});
 const cors = require('@fastify/cors');
+const rateLimit = require('@fastify/rate-limit');
 const QBittorrentClient = require('./services/qbittorrent');
 const { consultarLatamTmdb } = require('./services/streaming');
 const cache = require('./services/cache');
 const database = require('./services/database');
 const { getTorrentHashFromUrl, getTorrentInfo } = require('./services/torrent-parser');
 const { sleep } = require('./utils/helpers');
+const videoStreaming = require('./services/video-streaming');
 
 // Registrar CORS
 fastify.register(cors, {
@@ -14,6 +32,15 @@ fastify.register(cors, {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'],
   allowedHeaders: ['*']
+});
+
+// Registrar Rate Limiting
+fastify.register(rateLimit, {
+  max: 100, // 100 requests
+  timeWindow: '1 minute', // por minuto
+  cache: 10000, // Mantener info de 10k IPs
+  allowList: ['127.0.0.1'], // Whitelist para localhost
+  skipOnError: true // Continuar si hay error en rate limit
 });
 
 // Variables de entorno
@@ -25,17 +52,17 @@ const QBIT_HOST = process.env.QBIT_HOST;
 const QBIT_USER = process.env.QBIT_USER;
 const QBIT_PASS = process.env.QBIT_PASS;
 const TORRENT_API_KEY = process.env.TORRENT_API_KEY;
-const TORRENT_MOVIES_PATH = process.env.TORRENT_MOVIES_PATH;
-const TORRENT_SERIES_PATH = process.env.TORRENT_SERIES_PATH;
+const TORRENT_MOVIES_PATH = normalizePath(process.env.TORRENT_MOVIES_PATH);
+const TORRENT_SERIES_PATH = normalizePath(process.env.TORRENT_SERIES_PATH);
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5');
 const RETRY_DELAY = parseInt(process.env.RETRY_DELAY || '2');
-const STREAM_API_URL = process.env.STREAM_API_URL ;
-const STREAM_API_TOKEN = process.env.STREAM_API_TOKEN ;
-const STREAM_API_VERIFY_SSL = (process.env.STREAM_API_VERIFY_SSL || 'true').toLowerCase() === 'true';
 const CACHE_DURATION = parseInt(process.env.CACHE_DURATION || '3600');
 const QB_KEEP_ALIVE_INTERVAL = parseInt(process.env.QB_KEEP_ALIVE_INTERVAL || '1800'); // Segundos (default: 30 min, mitad del SessionTimeout de 3600s)
 const PORT = parseInt(process.env.PORT || '5000');
 const HOST = process.env.HOST || '0.0.0.0';
+// Construir VOLUMES_PATH automáticamente desde los directorios de torrents
+const VOLUMES_PATH = process.env.VOLUMES_PATH || [TORRENT_MOVIES_PATH, TORRENT_SERIES_PATH].filter(p => p).join(',');
+const FFPROBE_CACHE_FILE = process.env.FFPROBE_CACHE_FILE || './ffprobe_cache.json';
 
 // Cliente qBittorrent global (reutilizable)
 let qbtGlobal = null;
@@ -43,6 +70,10 @@ let qbtRetryCount = 0;
 let keepAliveInterval = null;
 const MAX_QB_RETRIES = 3;
 const QB_RETRY_DELAY = 2; // segundos
+
+// Intervalos de limpieza
+let streamCleanupInterval = null; // Limpia tokens inactivos
+let cacheCleanupInterval = null;  // Limpia archivos inexistentes del cache
 
 // Keep-alive automático para mantener sesión activa
 function startKeepAlive() {
@@ -55,22 +86,22 @@ function startKeepAlive() {
     if (qbtGlobal && qbtGlobal.session) {
       try {
         await qbtGlobal.session.get('/api/v2/app/version', { timeout: 5000 });
-        console.log('🔄 Keep-alive: Sesión qBittorrent renovada');
+        logger.debug('🔄 Keep-alive: Sesión qBittorrent renovada');
       } catch (error) {
-        console.log('⚠️  Keep-alive falló, sesión expirada. Reconectando...');
+        logger.warn('⚠️  Keep-alive falló, sesión expirada. Reconectando...');
         qbtGlobal = null;
         // Intentar reconectar
         try {
           await getQbtClient();
-          console.log('✅ Sesión qBittorrent restaurada por keep-alive');
+          logger.info('✅ Sesión qBittorrent restaurada por keep-alive');
         } catch (reconnectError) {
-          console.log(`❌ Keep-alive: No se pudo reconectar: ${reconnectError.message}`);
+          logger.error(`❌ Keep-alive: No se pudo reconectar: ${reconnectError.message}`);
         }
       }
     }
-  }, QB_KEEP_ALIVE_INTERVAL * 1000); // Convertir segundos a milisegundos
+  }, QB_KEEP_ALIVE_INTERVAL * 1000);
   
-  console.log(`🔄 Keep-alive iniciado (cada ${QB_KEEP_ALIVE_INTERVAL / 60} minutos)`);
+  logger.info(`🔄 Keep-alive iniciado (cada ${QB_KEEP_ALIVE_INTERVAL / 60} minutos)`);
 }
 
 // Obtener o crear cliente qBittorrent con retry automático
@@ -83,27 +114,27 @@ async function getQbtClient() {
   // Intentar conectar con retry y backoff exponencial
   for (let attempt = 0; attempt < MAX_QB_RETRIES; attempt++) {
     try {
-      console.log(`🔌 Conectando a qBittorrent (intento ${attempt + 1}/${MAX_QB_RETRIES})...`);
+      logger.info(`🔌 Conectando a qBittorrent (intento ${attempt + 1}/${MAX_QB_RETRIES})...`);
       qbtGlobal = new QBittorrentClient(QBIT_HOST, QBIT_USER, QBIT_PASS);
       await qbtGlobal.connect();
       qbtRetryCount = 0; // Resetear contador al conectar exitosamente
-      console.log(`✅ Cliente qBittorrent conectado`);
+      logger.info(`✅ Cliente qBittorrent conectado`);
       
       // Iniciar keep-alive cuando se conecta exitosamente
       startKeepAlive();
       
       return qbtGlobal;
     } catch (error) {
-      console.log(`⚠️  Error conectando qBittorrent (intento ${attempt + 1}): ${error.message}`);
+      logger.info(`⚠️  Error conectando qBittorrent (intento ${attempt + 1}): ${error.message}`);
       qbtGlobal = null;
       
       // Si no es el último intento, esperar con backoff exponencial
       if (attempt < MAX_QB_RETRIES - 1) {
         const waitTime = QB_RETRY_DELAY * Math.pow(2, attempt); // 2s, 4s, 8s
-        console.log(`⏳ Reintentando en ${waitTime}s...`);
+        logger.info(`⏳ Reintentando en ${waitTime}s...`);
         await sleep(waitTime);
       } else {
-        console.log(`❌ No se pudo conectar a qBittorrent después de ${MAX_QB_RETRIES} intentos`);
+        logger.info(`❌ No se pudo conectar a qBittorrent después de ${MAX_QB_RETRIES} intentos`);
         throw error;
       }
     }
@@ -125,16 +156,16 @@ async function ensureTorrentExists(latamId, type) {
   let dbEntry = database.get(latamId);
   
   if (dbEntry) {
-    console.log(`📂 Torrent en DB: ${latamId} → Hash: ${dbEntry.infoHash.substring(0, 8)}...`);
+    logger.info(`📂 Torrent en DB: ${latamId} → Hash: ${dbEntry.infoHash.substring(0, 8)}...`);
     
     // 2. Verificar en qBittorrent por hash
     const { exists, torrent } = await qbt.verificarHash(dbEntry.infoHash);
     
     if (exists) {
-      console.log(`✅ Torrent existe en qBittorrent (reutilizando)`);
+      logger.info(`✅ Torrent existe en qBittorrent (reutilizando)`);
       return { hash: dbEntry.infoHash, torrent };
     } else {
-      console.log(`⚠️  Torrent en DB pero no en qBittorrent, re-agregando...`);
+      logger.info(`⚠️  Torrent en DB pero no en qBittorrent, re-agregando...`);
     }
   }
   
@@ -156,19 +187,19 @@ async function ensureTorrentExists(latamId, type) {
   const { exists: alreadyExists, torrent: existingTorrent } = await qbt.verificarHash(torrentInfo.infoHash);
   
   if (alreadyExists) {
-    console.log(`✅ Torrent ya existía en qBittorrent (migrado a DB)`);
+    logger.info(`✅ Torrent ya existía en qBittorrent (migrado a DB)`);
     return { hash: torrentInfo.infoHash, torrent: existingTorrent };
   }
   
   // 6. Agregar torrent nuevo
   const savePath = type === 'movie' ? TORRENT_MOVIES_PATH : TORRENT_SERIES_PATH;
-  console.log(`📂 Tipo de contenido: ${type}`);
-  console.log(`📂 Directorio seleccionado: ${savePath}`);
-  console.log(`📂 TORRENT_MOVIES_PATH: ${TORRENT_MOVIES_PATH}`);
-  console.log(`📂 TORRENT_SERIES_PATH: ${TORRENT_SERIES_PATH}`);
+  logger.info(`📂 Tipo de contenido: ${type}`);
+  logger.info(`📂 Directorio seleccionado: ${savePath}`);
+  logger.info(`📂 TORRENT_MOVIES_PATH: ${TORRENT_MOVIES_PATH}`);
+  logger.info(`📂 TORRENT_SERIES_PATH: ${TORRENT_SERIES_PATH}`);
   
   await qbt.agregarTorrentDesdeUrl(torrentUrl, savePath);
-  console.log(`✅ Torrent agregado a qBittorrent en: ${savePath}`);
+  logger.info(`✅ Torrent agregado a qBittorrent en: ${savePath}`);
   
   // Esperar un momento para que qBittorrent procese
   await sleep(RETRY_DELAY);
@@ -217,7 +248,7 @@ fastify.get('/:add_key/manifest.json', {
     }
   }
 }, async (request, reply) => {
-  console.log('✓ Manifesto solicitado');
+  logger.info('✓ Manifesto solicitado');
   return MANIFEST;
 });
 
@@ -239,7 +270,7 @@ fastify.get('/:add_key/stream/:type/:id.json', {
   
   try {
     const qbtClient = await getQbtClient().catch(err => {
-      console.log(`⚠️  qBittorrent no disponible: ${err.message}`);
+      logger.info(`⚠️  qBittorrent no disponible: ${err.message}`);
       return null;
     });
     
@@ -253,7 +284,7 @@ fastify.get('/:add_key/stream/:type/:id.json', {
     );
     return { streams };
   } catch (error) {
-    console.log(`Error obteniendo streams: ${error.message}`);
+    logger.info(`Error obteniendo streams: ${error.message}`);
     return { streams: [] };
   }
 });
@@ -276,12 +307,12 @@ fastify.route({
     const { id } = request.params;
     const cacheKey = `movie_${id}`;
 
-    console.log(`\n🎥 Request película ID: ${id}`);
+    logger.info(`\n🎥 Request película ID: ${id}`);
 
     // Verificar caché primero
     const cachedUrl = cache.get(cacheKey, CACHE_DURATION);
     if (cachedUrl) {
-      console.log(`⚡ Usando URL desde cache`);
+      logger.info(`⚡ Usando URL desde cache`);
       return reply.redirect(cachedUrl);
     }
 
@@ -299,27 +330,25 @@ fastify.route({
         const { exists, torrent: currentTorrent } = await (await getQbtClient()).verificarHash(hash);
         
         if (exists && currentTorrent.content_path) {
-          const nuevaUrl = await (await getQbtClient()).obtenerStreamsDeTorrent(
+          const nuevaUrl = await (await getQbtClient()).obtenerStreamsLocal(
             currentTorrent.content_path,
-            STREAM_API_URL,
-            STREAM_API_TOKEN,
-            STREAM_API_VERIFY_SSL
+            DOMAIN
           );
           
           if (nuevaUrl) {
-            console.log(`Stream obtenido: ${nuevaUrl}`);
+            logger.info(`Stream obtenido: ${nuevaUrl}`);
             cache.set(cacheKey, nuevaUrl);
             return reply.redirect(nuevaUrl);
           }
         }
 
-        console.log(`Intento ${intento + 1}/${MAX_RETRIES} - Esperando torrent...`);
+        logger.info(`Intento ${intento + 1}/${MAX_RETRIES} - Esperando torrent...`);
         if (intento < MAX_RETRIES - 1) await sleep(RETRY_DELAY);
       }
 
       return reply.code(404).send({ error: 'No se pudo obtener el stream después de varios intentos' });
     } catch (error) {
-      console.log(`Error en redireccionar: ${error.message}`);
+      logger.info(`Error en redireccionar: ${error.message}`);
       return reply.code(500).send({ error: error.message });
     }
   }
@@ -345,12 +374,12 @@ fastify.route({
     const { season, episode, id } = request.params;
     const cacheKey = `series_${id}_S${season}E${episode}`;
 
-    console.log(`\n📺 Request serie S${season}E${episode} ID: ${id}`);
+    logger.info(`\n📺 Request serie S${season}E${episode} ID: ${id}`);
 
     // Verificar caché primero
     const cachedUrl = cache.get(cacheKey, CACHE_DURATION);
     if (cachedUrl) {
-      console.log(`⚡ Usando URL desde cache`);
+      logger.info(`⚡ Usando URL desde cache`);
       return reply.redirect(cachedUrl);
     }
 
@@ -382,24 +411,22 @@ fastify.route({
             cleanPath = parts[1];
           }
 
-          console.log(`ID Capítulo: ${idArchivo}, Ruta: ${cleanPath}`);
+          logger.info(`ID Capítulo: ${idArchivo}, Ruta: ${cleanPath}`);
 
           await qbt.subirPrioridadArchivo(torrentHash, idArchivo);
           const location = `${TORRENT_SERIES_PATH}/${cleanPath}`;
-          const nuevaUrl = await qbt.obtenerStreamsDeTorrent(
+          const nuevaUrl = await qbt.obtenerStreamsLocal(
             location,
-            STREAM_API_URL,
-            STREAM_API_TOKEN,
-            STREAM_API_VERIFY_SSL
+            DOMAIN
           );
 
           if (nuevaUrl) {
-            console.log(`Stream obtenido: ${nuevaUrl}`);
+            logger.info(`Stream obtenido: ${nuevaUrl}`);
             cache.set(cacheKey, nuevaUrl);
             return reply.redirect(nuevaUrl);
           }
         } catch (error) {
-          console.log(`Intento ${intento + 1}/${MAX_RETRIES} - ${error.message}`);
+          logger.info(`Intento ${intento + 1}/${MAX_RETRIES} - ${error.message}`);
         }
         
         if (intento < MAX_RETRIES - 1) await sleep(RETRY_DELAY);
@@ -407,22 +434,179 @@ fastify.route({
 
       return reply.code(404).send({ error: 'No se pudo obtener el stream del episodio después de varios intentos' });
     } catch (error) {
-      console.log(`Error en redireccionar2: ${error.message}`);
+      logger.info(`Error en redireccionar2: ${error.message}`);
       return reply.code(500).send({ error: error.message });
     }
   }
 });
 
+// Endpoint para generar tokens de streaming
+fastify.post('/video-stream/token', async (request, reply) => {
+  const { path: filePath } = request.body;
+  
+  if (!filePath) {
+    return reply.code(400).send({ error: 'Path requerido' });
+  }
+
+  try {
+    const baseUrl = `${DOMAIN}`;
+    // Pasar MAX_RETRIES y RETRY_DELAY (en ms) desde la configuración
+    const result = await videoStreaming.createStreamToken(
+      filePath, 
+      baseUrl, 
+      MAX_RETRIES, 
+      RETRY_DELAY * 1000
+    );
+    return result;
+  } catch (error) {
+    logger.info(`❌ Error creando token: ${error.message}`);
+    return reply.code(400).send({ error: error.message });
+  }
+});
+
+// Endpoint para streaming de video
+fastify.get('/video-stream/:token', async (request, reply) => {
+  const { token } = request.params;
+  const rangeHeader = request.headers.range;
+
+  // Validar que el stream esté activo
+  if (!videoStreaming.isStreamActive(token)) {
+    return reply.code(404).send({ error: 'Stream no encontrado o expirado' });
+  }
+
+  // Obtener datos del stream
+  const data = videoStreaming.getStreamData(token);
+  
+  if (!data) {
+    return reply.code(404).send({ error: 'Stream no encontrado' });
+  }
+
+  // Actualizar acceso
+  videoStreaming.updateStreamAccess(token);
+
+  // Verificar que el archivo existe
+  let stat;
+  try {
+    const fs = require('fs').promises;
+    stat = await fs.stat(data.path);
+  } catch {
+    logger.info(`❌ Archivo no existe: ${data.path}`);
+    return reply.code(404).send({ error: 'Archivo no encontrado' });
+  }
+
+  // Verificar si es streamable
+  const streamable = await videoStreaming.isFileStreamable(data.path);
+  if (!streamable) {
+    return reply.code(425).send({ 
+      error: 'Archivo aún no disponible para streaming. Intenta más tarde.' 
+    });
+  }
+
+  const fileSize = stat.size;
+  const contentType = videoStreaming.getContentType(data.path);
+
+  logger.info(`🎬 Stream: ${require('path').basename(data.path)} | Acceso: ${data.access_count} | Range: ${rangeHeader ? 'Sí' : 'No'}`);
+
+  // Manejo de Range Requests
+  if (rangeHeader) {
+    const range = videoStreaming.parseRangeHeader(rangeHeader, fileSize);
+    
+    if (!range || range.start >= fileSize || range.end >= fileSize) {
+      return reply.code(416).send({ error: 'Range Not Satisfiable' });
+    }
+
+    const chunkSize = range.end - range.start + 1;
+
+    reply.code(206);
+    reply.header('Content-Range', `bytes ${range.start}-${range.end}/${fileSize}`);
+    reply.header('Accept-Ranges', 'bytes');
+    reply.header('Content-Length', chunkSize);
+    reply.header('Content-Type', contentType);
+    reply.header('Cache-Control', 'public, max-age=3600');
+
+    const stream = videoStreaming.createReadStream(data.path, { start: range.start, end: range.end });
+    return reply.send(stream);
+  } else {
+    // Sin Range, enviar archivo completo
+    reply.code(200);
+    reply.header('Content-Type', contentType);
+    reply.header('Accept-Ranges', 'bytes');
+    reply.header('Cache-Control', 'public, max-age=3600');
+    reply.header('Content-Length', fileSize);
+
+    const stream = videoStreaming.createReadStream(data.path);
+    return reply.send(stream);
+  }
+});
+
+// Endpoint de health check que incluye info de streaming
+fastify.get('/health', async (request, reply) => {
+  const streamStats = videoStreaming.getStreamingStats();
+  return {
+    status: 'healthy',
+    qbittorrent: qbtGlobal ? 'connected' : 'disconnected',
+    streaming: {
+      active_tokens: streamStats.total_tokens,
+      cache_entries: streamStats.cache_entries
+    },
+    timestamp: Math.floor(Date.now() / 1000)
+  };
+});
+
+// Graceful shutdown
+const gracefulShutdown = async () => {
+  logger.info('👋 Cerrando servidor...');
+  
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+  }
+  
+  if (streamCleanupInterval) {
+    clearInterval(streamCleanupInterval);
+  }
+  
+  if (cacheCleanupInterval) {
+    clearInterval(cacheCleanupInterval);
+  }
+  
+  // Guardar cache de streaming antes de cerrar
+  await videoStreaming.saveFFProbeCache();
+  
+  await fastify.close();
+  process.exit(0);
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 // Iniciar servidor
 const start = async () => {
   try {
+    // Inicializar servicio de streaming
+    const volumesPaths = VOLUMES_PATH.split(',').map(p => p.trim()).filter(p => p);
+    videoStreaming.initStreamingService(volumesPaths, FFPROBE_CACHE_FILE);
+    await videoStreaming.loadFFProbeCache();
+    
+    // Limpieza de tokens inactivos cada 1 minuto (se reinicia con cada uso)
+    streamCleanupInterval = setInterval(() => {
+      videoStreaming.cleanupExpiredTokens();
+    }, 60000); // 1 minuto
+    
+    // Limpieza de cache de archivos inexistentes cada 1 hora
+    cacheCleanupInterval = setInterval(async () => {
+      await videoStreaming.cleanupFFProbeCache();
+    }, 3600000); // 1 hora
+    
     await fastify.listen({ port: PORT, host: HOST });
-    console.log(`\n🚀 Servidor Fastify corriendo en http://${HOST}:${PORT}`);
-    console.log(`📦 Addon disponible en: ${DOMAIN}/${ADDON_KEY}/manifest.json`);
-    console.log(`\n📁 Configuración de directorios:`);
-    console.log(`   Movies: ${TORRENT_MOVIES_PATH || '⚠️  NO CONFIGURADO'}`);
-    console.log(`   Series: ${TORRENT_SERIES_PATH || '⚠️  NO CONFIGURADO'}`);
-    console.log(`\n🔄 Keep-alive qBittorrent: Cada ${QB_KEEP_ALIVE_INTERVAL / 60} minutos (${QB_KEEP_ALIVE_INTERVAL}s)\n`);
+    logger.info(`\n🚀 Servidor Fastify corriendo en http://${HOST}:${PORT}`);
+    logger.info(`📦 Addon disponible en: ${DOMAIN}/${ADDON_KEY}/manifest.json`);
+    logger.info(`\n📁 Configuración de directorios:`);
+    logger.info(`   Movies: ${TORRENT_MOVIES_PATH || '⚠️  NO CONFIGURADO'}`);
+    logger.info(`   Series: ${TORRENT_SERIES_PATH || '⚠️  NO CONFIGURADO'}`);
+    logger.info(`\n🎬 Servicio de streaming integrado: ✅`);
+    logger.info(`   Volumes: ${volumesPaths.join(', ')}`);
+    logger.info(`   Endpoint: ${DOMAIN}/video-stream/token`);
+    logger.info(`\n🔄 Keep-alive qBittorrent: Cada ${QB_KEEP_ALIVE_INTERVAL / 60} minutos (${QB_KEEP_ALIVE_INTERVAL}s)\n`);
   } catch (error) {
     fastify.log.error(error);
     process.exit(1);

@@ -1,3 +1,5 @@
+const logger = require('../utils/logger');
+
 const axios = require('axios');
 
 /**
@@ -6,12 +8,12 @@ const axios = require('axios');
 async function obtenerInfoUsuario(token) {
   try {
     const url = `https://lat-team.com/api/user?api_token=${token}`;
-    //console.log(`[DEBUG] Consultando tracker con URL: ${url.substring(0, 60)}...`);
+    //logger.info(`[DEBUG] Consultando tracker con URL: ${url.substring(0, 60)}...`);
     const response = await axios.get(url);
     
     if (response.status === 200) {
-      console.log(`✅ Info de usuario obtenida correctamente`);
-      //console.log(`[DEBUG] Respuesta del tracker: ${JSON.stringify(response.data, null, 2)}`);
+      logger.info(`✅ Info de usuario obtenida correctamente`);
+      //logger.info(`[DEBUG] Respuesta del tracker: ${JSON.stringify(response.data, null, 2)}`);
       return response.data;
     }
     return null;

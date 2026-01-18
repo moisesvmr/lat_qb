@@ -1,3 +1,5 @@
+const logger = require('../utils/logger');
+
 const axios = require('axios');
 const { formatSize, parseMediaInfo } = require('../utils/helpers');
 const { obtenerInfoUsuario } = require('./tracker');
@@ -161,7 +163,7 @@ async function convertirImdbATmdb(id, apiKey) {
 
   const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${apiKey}&external_source=imdb_id`;
 
-  console.log(`Convirtiendo IMDB a TMDB con URL: ${url}`);
+  logger.info(`Convirtiendo IMDB a TMDB con URL: ${url}`);
   
   try {
     const response = await axios.get(url);
@@ -169,21 +171,21 @@ async function convertirImdbATmdb(id, apiKey) {
     if (response.status === 200) {
       const data = response.data;
       if (data.movie_results && data.movie_results.length > 0) {
-        console.log('es una pelicula');
+        logger.info('es una pelicula');
         return { id: data.movie_results[0].id, type: 'movie' };
       } else if (data.tv_results && data.tv_results.length > 0) {
-        console.log('es una serie');
+        logger.info('es una serie');
         return { id: data.tv_results[0].id, type: 'tv' };
       } else {
-        console.log('no se encontro nada');
+        logger.info('no se encontro nada');
         return { id: null, type: null };
       }
     } else {
-      console.log('Error al convertir ID de IMDB a TMDB');
+      logger.info('Error al convertir ID de IMDB a TMDB');
       return { id: null, type: null };
     }
   } catch (error) {
-    console.log(`Error al convertir IMDB a TMDB: ${error.message}`);
+    logger.info(`Error al convertir IMDB a TMDB: ${error.message}`);
     return { id: null, type: null };
   }
 }
@@ -209,7 +211,7 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey, qbtClien
       });
     }
   } catch (error) {
-    console.log(`Error obteniendo info usuario: ${error.message}`);
+    logger.info(`Error obteniendo info usuario: ${error.message}`);
   }
 
   // Stream 2: Información de qBittorrent
@@ -224,7 +226,7 @@ async function consultarLatamTmdb(id, token, tmdbKey, domain, addonKey, qbtClien
         });
       }
     } catch (error) {
-      console.log(`Error obteniendo info qBittorrent: ${error.message}`);
+      logger.info(`Error obteniendo info qBittorrent: ${error.message}`);
     }
   }
 

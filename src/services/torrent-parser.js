@@ -1,3 +1,5 @@
+const logger = require('../utils/logger');
+
 const crypto = require('crypto');
 const axios = require('axios');
 
@@ -178,8 +180,8 @@ function parseTorrentData(torrentData) {
  * Obtener infoHash de un torrent desde URL
  */
 async function getTorrentHashFromUrl(url) {
-  console.log(`\n🔍 [getTorrentHash] Descargando torrent...`);
-  console.log(`   URL: ${url.substring(0, 60)}...`);
+  logger.info(`\n🔍 [getTorrentHash] Descargando torrent...`);
+  logger.info(`   URL: ${url.substring(0, 60)}...`);
   
   try {
     const response = await axios.get(url, {
@@ -192,11 +194,11 @@ async function getTorrentHashFromUrl(url) {
     }
     
     const buffer = Buffer.from(response.data);
-    console.log(`   Tamaño: ${(buffer.length / 1024).toFixed(2)} KB`);
+    logger.info(`   Tamaño: ${(buffer.length / 1024).toFixed(2)} KB`);
     
     const infoHash = calculateInfoHash(buffer);
     
-    console.log(`   ✅ InfoHash: ${infoHash}`);
+    logger.info(`   ✅ InfoHash: ${infoHash}`);
     
     return infoHash;
   } catch (error) {
@@ -209,8 +211,8 @@ async function getTorrentHashFromUrl(url) {
  * Obtener información completa del torrent
  */
 async function getTorrentInfo(url) {
-  console.log(`\n📋 [getTorrentInfo] Obteniendo información completa...`);
-  console.log(`   URL: ${url.substring(0, 60)}...`);
+  logger.info(`\n📋 [getTorrentInfo] Obteniendo información completa...`);
+  logger.info(`   URL: ${url.substring(0, 60)}...`);
   
   try {
     const response = await axios.get(url, {
@@ -225,10 +227,10 @@ async function getTorrentInfo(url) {
     const buffer = Buffer.from(response.data);
     const info = parseTorrentData(buffer);
     
-    console.log(`   ✅ Hash: ${info.infoHash}`);
-    console.log(`   Nombre: ${info.name}`);
-    console.log(`   Tamaño: ${(info.length / 1024 / 1024 / 1024).toFixed(2)} GB`);
-    console.log(`   Archivos: ${info.files}`);
+    logger.info(`   ✅ Hash: ${info.infoHash}`);
+    logger.info(`   Nombre: ${info.name}`);
+    logger.info(`   Tamaño: ${(info.length / 1024 / 1024 / 1024).toFixed(2)} GB`);
+    logger.info(`   Archivos: ${info.files}`);
     
     return info;
   } catch (error) {
